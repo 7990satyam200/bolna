@@ -34,8 +34,7 @@ services:
             - requirements.txt
             - telephony_server/
             - dockerfile/
-        - action: rebuild
-          path: ../requirements.txt
+
             
   redis:
     image: "redis:latest"
