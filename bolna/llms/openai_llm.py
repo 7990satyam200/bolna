@@ -52,8 +52,7 @@ class OpenAiLLM(BaseLLM):
         if  "frequency_penalty" in kwargs:
             self.model_args["frequency_penalty"] = kwargs["frequency_penalty"]
 
-    async def generate_stream(self, messages, synthesize=True, request_json=False):     
-        print("Only generate stream function is calling here #126")
+    async def generate_stream(self, messages, synthesize=True, request_json=False):
         if len(messages) == 0:
             raise Exception("No messages provided")
         
@@ -87,7 +86,6 @@ class OpenAiLLM(BaseLLM):
         self.started_streaming = False
 
     async def generate(self, messages, request_json=False):
-        print("Only generate function is calling here #125")
         response_format = self.get_response_format(request_json)
         logger.info(f"request to open ai {messages}")
 

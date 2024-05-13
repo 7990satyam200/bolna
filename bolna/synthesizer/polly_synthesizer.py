@@ -42,6 +42,7 @@ class PollySynthesizer(BaseSynthesizer):
         return await exit_stack.enter_async_context(session.create_client(service))
 
     async def __generate_http(self, text):
+        self.synthesized_characters += len(text)
         session = AioSession()
         async with AsyncExitStack() as exit_stack:
             polly = await self.create_client("polly", session, exit_stack)
@@ -87,12 +88,10 @@ class PollySynthesizer(BaseSynthesizer):
             meta_info, text = message.get("meta_info"), message.get("data")
             if self.cache.get(text):
                 logger.info(f"Cache hit and hence returning quickly {text}")
-                message = self.cache.get(text)
+                message = self.cache[text]
             else:
                 logger.info(f"Not a cache hit {list(self.cache.data_dict)}")
-                self.synthesized_characters += len(text)
-                message = await self.__generate_http(text)
-                self.cache.set(text, message)
+            message = await self.__generate_http(text)
             if self.format == "mp3":
                 message = convert_audio_to_wav(message, source_format="mp3")
             if not self.first_chunk_generated:
