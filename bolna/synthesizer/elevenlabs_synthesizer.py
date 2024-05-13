@@ -11,18 +11,21 @@ from .base_synthesizer import BaseSynthesizer
 from bolna.helpers.logger_config import configure_logger
 from bolna.helpers.utils import convert_audio_to_wav, create_ws_data_packet, pcm_to_wav_bytes, resample
 
+
 logger = configure_logger(__name__)
 
 
 class ElevenlabsSynthesizer(BaseSynthesizer):
     def __init__(self, voice, voice_id, model="eleven_multilingual_v1", audio_format="mp3", sampling_rate="16000",
-                 stream=False, buffer_size=400, synthesier_key=None, **kwargs):
+                 stream=False, buffer_size=400, temperature = 0.5, similarity_boost = 0.5, synthesier_key=None, 
+                 cache=None, **kwargs):
         super().__init__(stream)
         self.api_key = os.environ["ELEVENLABS_API_KEY"] if synthesier_key is None else synthesier_key
         self.voice = voice_id
         self.use_turbo = kwargs.get("use_turbo", False)
         self.model = "eleven_turbo_v2" if self.use_turbo else "eleven_multilingual_v2"
-        self.stream = stream  # Issue with elevenlabs streaming that we need to always send the text quickly
+        logger.info(f"Using turbo or not {self.model}")
+        self.stream = False  # Issue with elevenlabs streaming that we need to always send the text quickly
         self.websocket_connection = None
         self.connection_open = False
         self.sampling_rate = sampling_rate
@@ -34,6 +37,10 @@ class ElevenlabsSynthesizer(BaseSynthesizer):
         self.last_text_sent = False
         self.text_queue = deque()
         self.meta_info = None
+        self.temperature = temperature
+        self.similarity_boost = similarity_boost
+        self.cache = cache
+        self.synthesized_characters = 0
 
     # Ensuring we only do wav output for now
     def get_format(self, format, sampling_rate):
@@ -55,8 +62,8 @@ class ElevenlabsSynthesizer(BaseSynthesizer):
             bos_message = {
                 "text": " ",
                 "voice_settings": {
-                    "stability": 0.5,
-                    "similarity_boost": 0.5
+                    "stability": self.temperature,
+                    "similarity_boost": self.similarity_boost
                 },
                 "xi_api_key": self.api_key,
             }
@@ -128,13 +135,16 @@ class ElevenlabsSynthesizer(BaseSynthesizer):
             "text": text,
             "model_id": self.model,
             "voice_settings": {
-                "stability": 0.5,
+                "stability": 0.4,
                 "similarity_boost": 0.5,
                 "optimize_streaming_latency": 3
             }
         }
         response = await self.__send_payload(payload, format=format)
         return response
+
+    def get_synthesized_characters(self):
+        return self.synthesized_characters
 
     # Currently we are only supporting wav output but soon we will incorporate conver
     async def generate(self):
@@ -167,8 +177,8 @@ class ElevenlabsSynthesizer(BaseSynthesizer):
 
                     if message == b'\x00':
                         logger.info("received null byte and hence end of stream")
-                        meta_info["end_of_synthesizer_stream"] = True
-                        yield create_ws_data_packet(resample(message, int(self.sampling_rate)), meta_info)
+                        self.meta_info["end_of_synthesizer_stream"] = True
+                        yield create_ws_data_packet(resample(message, int(self.sampling_rate)), self.meta_info)
                         self.first_chunk_generated = False
 
             else:
@@ -176,8 +186,18 @@ class ElevenlabsSynthesizer(BaseSynthesizer):
                     message = await self.internal_queue.get()
                     logger.info(f"Generating TTS response for message: {message}")
                     meta_info, text = message.get("meta_info"), message.get("data")
-                    audio = await self.__generate_http(text)
-
+                    if self.cache.get(text):
+                        logger.info(f"Cache hit and hence returning quickly {text}")
+                        message = self.cache.get(text)
+                        meta_info['is_cached'] = True
+                    else:
+                        c = len(text)
+                        self.synthesized_characters += c
+                        logger.info(f"Not a cache hit {list(self.cache.data_dict)} and hence increasing characters by {c}")
+                        meta_info['is_cached'] = False
+                        audio = await self.__generate_http(text)
+                        self.cache.set(text, audio)
+                        
                     meta_info['text'] = text
                     if not self.first_chunk_generated:
                         meta_info["is_first_chunk"] = True
@@ -192,6 +212,7 @@ class ElevenlabsSynthesizer(BaseSynthesizer):
                     else:
                         meta_info['format'] = "wav"
                         wav_bytes = convert_audio_to_wav(audio, source_format="mp3")
+                        logger.info(f"self.sampling_rate {self.sampling_rate}")
                         audio = resample(wav_bytes, int(self.sampling_rate), format="wav")
                     yield create_ws_data_packet(audio, meta_info)
 

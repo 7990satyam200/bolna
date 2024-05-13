@@ -23,6 +23,7 @@ services:
         - .env
     volumes:
       - ../agent_data:/app/agent_data
+      # - ../bolna:/app/bolna/
       - $HOME/.aws/credentials:/root/.aws/credentials:ro
       - $HOME/.aws/config:/root/.aws/config:ro
     develop:

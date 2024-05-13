@@ -23,21 +23,28 @@ class Node:
 
 
 class Graph:
-    def __init__(self, conversation_data, preprocessed=False):
+    def __init__(self, conversation_data, preprocessed=False, context_data=None):
         self.preprocessed = preprocessed
         self.root = None
-        self.graph = self._create_graph(conversation_data)
+        self.graph = self._create_graph(conversation_data, context_data)
 
-    def _create_graph(self, data):
+    def _create_graph(self, data, context_data=None):
         logger.info(f"Creating graph")
         node_map = dict()
         for node_id, node_data in data.items():
+            prompt_parts = node_data.get("prompt").split('###Examples')
+            prompt = node_data.get('prompt')
+            if len(prompt_parts) == 2:
+                classification_prompt = prompt_parts[0]
+                user_prompt = update_prompt_with_context(prompt_parts[1], context_data)
+                prompt = '###Examples'.join([classification_prompt, user_prompt])
+
             node = Node(
                 node_id=node_id,
                 node_label=node_data["label"],
                 content=node_data["content"],
                 classification_labels=node_data.get("classification_labels", []),
-                prompt=node_data.get("prompt"),
+                prompt=prompt,
                 children=[],
                 milestone_check_prompt=node_data.get("milestone_check_prompt", ""),
             )
@@ -68,7 +75,7 @@ class GraphBasedConversationAgent(BaseAgent):
         self.conversation_intro_done = False
 
     def load_prompts_and_create_graph(self, prompts):
-        self.graph = Graph(prompts)
+        self.graph = Graph(prompts,  context_data=self.context_data)
         self.current_node = self.graph.root
         self.current_node_interim = self.graph.root #Handle interim node because we are dealing with interim results 
 
@@ -108,7 +115,7 @@ class GraphBasedConversationAgent(BaseAgent):
 
         message = [{"role": "system", "content": self.current_node.prompt}] + prev_messages
         # Get classification label from LLM
-        response = await self.llm.generate(message, True, False, request_json=True)
+        response = await self.llm.generate(message, request_json=True)
         logger.info(f"Classification response {response}")
         classification_result = json.loads(response)
         label = classification_result["classification_label"]
@@ -119,8 +126,9 @@ class GraphBasedConversationAgent(BaseAgent):
 
     def update_current_node(self):
         self.current_node = self.current_node_interim
-        
-    async def generate(self, history, stream=False, synthesize=False, label_flow=None):
+    
+    # Label flow is not being used right now as we're logging every request
+    async def generate(self, history, label_flow=None):
         try:
             if self.preprocessed:
                 logger.info(f"Current node {str(self.current_node)}")
@@ -128,12 +136,11 @@ class GraphBasedConversationAgent(BaseAgent):
                     ind = random.randint(0, len(self.current_node.content) - 1)
                     audio_pair = self.current_node.content[ind]
                     logger.info('Agent: {}'.format(audio_pair.get('text')))
-                    yield audio_pair["audio"]
+                    yield audio_pair
                 else:
                     next_state = await self._get_next_preprocessed_step(history)
                     logger.info('Agent: {}'.format(next_state))
-                    history.append({'role': 'assistant', 'content': next_state['text']})
-                    yield next_state["audio"]
+                    yield next_state
                 
                 if len(self.current_node.children) == 0:
                     await asyncio.sleep(1)
