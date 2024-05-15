@@ -14,12 +14,14 @@ class LiteLLM(BaseLLM):
     def __init__(self, streaming_model, max_tokens=30, buffer_size=40,
                  classification_model=None, temperature=0.0, **kwargs):
         super().__init__(max_tokens, buffer_size)
+        print("lite llm model initiated")
         self.model = streaming_model
         self.started_streaming = False
         self.model_args = {"max_tokens": max_tokens, "temperature": temperature, "model": self.model}
 
         self.api_key = kwargs.get("llm_key", os.getenv('LITELLM_MODEL_API_KEY'))
         self.api_base = kwargs.get("base_url", os.getenv('LITELLM_MODEL_API_BASE'))
+        print("lite llm model: ".format(self.api_key))
         if self.api_key:
             self.model_args["api_key"] = self.api_key
         if self.api_base:
@@ -42,6 +44,7 @@ class LiteLLM(BaseLLM):
             if "llm_key" in kwargs:
                 self.model_args["llm_key"] = kwargs["llm_key"]
         self.classification_model = classification_model
+        print("lite llm model initiated")
 
     async def generate_stream(self, messages, synthesize=True):
         answer, buffer = "", ""
@@ -52,6 +55,7 @@ class LiteLLM(BaseLLM):
         logger.info(f"request to model: {self.model}: {messages}")
         start_time = time.time()
         async for chunk in await litellm.acompletion(**model_args):
+            print(model_args)
             if (text_chunk := chunk['choices'][0]['delta'].content) and not chunk['choices'][0].finish_reason:
                 answer += text_chunk
                 buffer += text_chunk
@@ -71,7 +75,7 @@ class LiteLLM(BaseLLM):
         else:
             yield answer, True
         self.started_streaming = False
-        logger.info(f"Time to generate response {time.time() - start_time}")
+        logger.info(f"Time to generate litellm response {time.time() - start_time}")
 
     async def generate(self, messages, classification_task=False, stream=False, synthesize=True, request_json=False):
         text = ""
