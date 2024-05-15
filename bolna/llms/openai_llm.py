@@ -38,7 +38,7 @@ class OpenAiLLM(BaseLLM):
         else:
             llm_key = kwargs.get('llm_key', os.getenv('OPEN_API_KEY'))
             if llm_key != "sk-":
-                llm_key = os.getenv('OPENAI_API_KEY')
+                llm_key = os.getenv('OPEN_API_KEY')
             else:
                 llm_key = kwargs['llm_key']
             self.async_client = AsyncOpenAI(api_key=llm_key)
